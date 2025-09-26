@@ -85,19 +85,12 @@ class UserLogin(BaseModel):
         return v
 
 class NoteCreate(BaseModel):
-    """
-    Note creation request model with comprehensive validation.
-    
-    Validates note title and content requirements to ensure data quality
-    and proper note structure for the system.
-    """
     title: str
     content: str
     
     @field_validator('title')
     @classmethod
     def title_must_be_valid(cls, v):
-        """Validate note title meets requirements."""
         if not v or not v.strip():
             raise ValueError('Title cannot be empty')
         if len(v.strip()) > 200:
@@ -107,18 +100,11 @@ class NoteCreate(BaseModel):
     @field_validator('content')
     @classmethod
     def content_not_empty(cls, v):
-        """Ensure note content is provided."""
         if not v or not v.strip():
             raise ValueError('Content cannot be empty')
         return v.strip()
 
 class NoteUpdate(BaseModel):
-    """
-    Note update request model supporting content and optional title changes.
-    
-    Allows updating note content and optionally changing the title while
-    maintaining validation requirements.
-    """
     content: str
     title: Optional[str] = None  # Allow title change
     tags: Optional[str] = None  # Allow tags change
@@ -126,7 +112,6 @@ class NoteUpdate(BaseModel):
     @field_validator('content')
     @classmethod
     def content_not_empty(cls, v):
-        """Ensure updated content is valid."""
         if not v or not v.strip():
             raise ValueError('Content cannot be empty')
         return v.strip()
@@ -134,14 +119,70 @@ class NoteUpdate(BaseModel):
     @field_validator('title')
     @classmethod
     def title_must_be_valid(cls, v):
-        """Validate new title if provided."""
         if v is not None and (not v.strip() or len(v.strip()) > 200):
             raise ValueError('Title must be 1-200 characters')
         return v.strip() if v else None
 
+class TodoCreate(BaseModel):
+    """
+    Todo creation request model with comprehensive validation and optional features.
+    
+    Supports all todo features including priority levels, due dates, descriptions,
+    tagging, and note linking for complete task management.
+    """
+    title: str
+    description: str = ""
+    due_date: Optional[str] = None
+    priority: str = "normal"
+    tags: Optional[List[str]] = []
+    note_title: Optional[str] = None
+    
+    @field_validator('title')
+    @classmethod
+    def title_must_be_valid(cls, v):
+        """Validate todo title requirements."""
+        if not v or not v.strip():
+            raise ValueError('Title cannot be empty')
+        if len(v.strip()) > 200:
+            raise ValueError('Title must be less than 200 characters')
+        return v.strip()
+    
+    @field_validator('priority')
+    @classmethod
+    def priority_must_be_valid(cls, v):
+        """Ensure priority is valid option."""
+        if v not in {"low", "normal", "high"}:
+            raise ValueError('Priority must be low, normal, or high')
+        return v
+    
+    @field_validator('description')
+    @classmethod
+    def clean_description(cls, v):
+        """Clean and normalize description."""
+        return v.strip() if v else ""
+
+class TagsAdd(BaseModel):
+    """
+    Batch tag addition request model with validation.
+    
+    Supports adding multiple tags to notes or todos with proper
+    validation and normalization.
+    """
+    tags: List[str]
+    
+    @field_validator('tags')
+    @classmethod
+    def tags_must_be_valid(cls, v):
+        """Validate tag list and normalize entries."""
+        if not v:
+            raise ValueError('Tags list cannot be empty')
+        clean_tags = [tag.strip() for tag in v if tag.strip()]
+        if not clean_tags:
+            raise ValueError('No valid tags provided')
+        return clean_tags
+
 # Helper function to get username from session
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Extract and validate current user from session token."""
     session_id = credentials.credentials
     username = notes_system._get_username_from_session(session_id)
     if not username:
@@ -219,19 +260,7 @@ async def logout_user(credentials: HTTPAuthorizationCredentials = Depends(securi
 # Notes endpoints
 @app.get("/notes")
 async def list_notes(limit: int = 50, username: str = Depends(get_current_user)):
-    """
-    Get all notes for the logged-in user with pagination support.
-    
-    Returns note list with content previews for efficient browsing.
-    Full content is excluded from list view to optimize performance.
-    
-    Args:
-        limit: Maximum number of notes to return (default 50)
-        username: Current authenticated user (from session)
-        
-    Returns:
-        List of notes with metadata and content previews
-    """
+    """Get all notes for the logged-in user"""
     try:
         session_id = get_session_id(username)
         if not session_id:
@@ -256,19 +285,7 @@ async def list_notes(limit: int = 50, username: str = Depends(get_current_user))
 
 @app.post("/notes")
 async def create_note(note: NoteCreate, username: str = Depends(get_current_user)):
-    """
-    Create a new note with title uniqueness validation.
-    
-    Creates new note ensuring title is unique within user's collection.
-    Validates input using Pydantic models before processing.
-    
-    Args:
-        note: NoteCreate model with title and content
-        username: Current authenticated user (from session)
-        
-    Returns:
-        Note creation confirmation with assigned note ID
-    """
+    """Create a new note"""
     try:
         session_id = get_session_id(username)
         if not session_id:
@@ -293,19 +310,7 @@ async def create_note(note: NoteCreate, username: str = Depends(get_current_user
 
 @app.get("/notes/{title}")
 async def get_note(title: str, username: str = Depends(get_current_user)):
-    """
-    Get a specific note by title with complete content and metadata.
-    
-    Retrieves full note data including content, tags, and timestamps.
-    Used for note viewing and editing operations.
-    
-    Args:
-        title: Title of the note to retrieve
-        username: Current authenticated user (from session)
-        
-    Returns:
-        Complete note data or 404 if not found
-    """
+    """Get a specific note by title"""
     try:
         session_id = get_session_id(username)
         if not session_id:
@@ -327,20 +332,7 @@ async def get_note(title: str, username: str = Depends(get_current_user)):
 
 @app.put("/notes/{title}")
 async def update_note(title: str, note_update: NoteUpdate, username: str = Depends(get_current_user)):
-    """
-    Update note content and optionally title with conflict prevention.
-    
-    Supports updating note content and changing title while preventing
-    duplicate titles within user's collection.
-    
-    Args:
-        title: Current title of the note to update
-        note_update: NoteUpdate model with new content and optional title
-        username: Current authenticated user (from session)
-        
-    Returns:
-        Update confirmation with new title information
-    """
+    """Update note content and optionally title"""
     try:
         session_id = get_session_id(username)
         if not session_id:
@@ -377,19 +369,7 @@ async def update_note(title: str, note_update: NoteUpdate, username: str = Depen
     
 @app.delete("/notes/{title}")
 async def delete_note(title: str, username: str = Depends(get_current_user)):
-    """
-    Delete a note permanently with authorization checking.
-    
-    Removes note and all associated data (tags, folder links) through
-    database cascade operations.
-    
-    Args:
-        title: Title of the note to delete
-        username: Current authenticated user (from session)
-        
-    Returns:
-        Deletion confirmation or error if note not found
-    """
+    """Delete a note"""
     try:
         session_id = get_session_id(username)
         if not session_id:
@@ -411,19 +391,7 @@ async def delete_note(title: str, username: str = Depends(get_current_user)):
 
 @app.get("/notes/search/{query}")
 async def search_notes(query: str, username: str = Depends(get_current_user)):
-    """
-    Search notes by keyword with fuzzy matching.
-    
-    Performs LIKE-pattern matching across note titles and content,
-    returning results with extended previews for context.
-    
-    Args:
-        query: Search term to match against notes
-        username: Current authenticated user (from session)
-        
-    Returns:
-        List of matching notes with search previews
-    """
+    """Search notes by keyword"""
     try:
         if not query.strip():
             raise HTTPException(status_code=400, detail="Search query cannot be empty")
@@ -450,6 +418,240 @@ async def search_notes(query: str, username: str = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
+@app.post("/notes/{title}/tags")
+async def add_tags_to_note(title: str, tags: TagsAdd, username: str = Depends(get_current_user)):
+    """
+    Add multiple tags to a note for organization and categorization.
+    
+    Uses normalized tag storage allowing tags to be shared across notes
+    and todos for consistent organization.
+    
+    Args:
+        title: Title of the note to tag
+        tags: TagsAdd model with list of tags to add
+        username: Current authenticated user (from session)
+        
+    Returns:
+        Complete list of all tags on the note after addition
+    """
+    try:
+        session_id = get_session_id(username)
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Session not found")
+        
+        result = json.loads(notes_system.add_tags(session_id, title, tags.tags))
+        if result["success"]:
+            return create_response(
+                success=True,
+                data={
+                    "title": title,
+                    "all_tags": result["tags"]
+                },
+                message=f"Tags added to note '{title}'"
+            )
+        else:
+            raise HTTPException(status_code=400, detail=result["message"])
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add tags: {str(e)}")
+
+@app.get("/stats")
+async def get_user_stats(username: str = Depends(get_current_user)):
+    """
+    Get comprehensive user statistics for dashboard and analytics.
+    
+    Provides overview metrics including note counts, tag usage, todo statistics,
+    and recent activity for user engagement insights.
+    
+    Args:
+        username: Current authenticated user (from session)
+        
+    Returns:
+        Complete user statistics and activity metrics
+    """
+    try:
+        session_id = get_session_id(username)
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Session not found")
+        
+        result = json.loads(notes_system.get_stats(session_id))
+        if result["success"]:
+            return create_response(
+                success=True,
+                data={"stats": result["stats"]},
+                message="Statistics retrieved successfully"
+            )
+        else:
+            raise HTTPException(status_code=400, detail=result["message"])
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}")
+
+# Todo endpoints
+@app.get("/todos")
+async def get_todos(
+    status: Optional[str] = None,
+    tag: Optional[str] = None,
+    priority: Optional[str] = None,
+    username: str = Depends(get_current_user)
+):
+    """
+    Get todos with advanced filtering for productivity workflows.
+    
+    Supports multiple filter criteria to help users organize and manage
+    their tasks effectively. Filters can be combined for precise results.
+    
+    Args:
+        status: Filter by "open" or "done" completion status
+        tag: Filter by specific tag name
+        priority: Filter by priority level (low/normal/high)
+        username: Current authenticated user (from session)
+        
+    Returns:
+        Filtered list of todos with complete metadata and tags
+    """
+    try:
+        session_id = get_session_id(username)
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Session not found")
+        
+        result = json.loads(notes_system.list_todos(session_id, status, tag, priority))
+        if result["success"]:
+            return create_response(
+                success=True,
+                data={
+                    "todos": result["results"],
+                    "count": len(result["results"]),
+                    "filters": {
+                        "status": status,
+                        "tag": tag,
+                        "priority": priority
+                    }
+                },
+                message=f"Found {len(result['results'])} todos"
+            )
+        else:
+            raise HTTPException(status_code=400, detail=result["message"])
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get todos: {str(e)}")
+
+@app.post("/todos")
+async def create_new_todo(todo: TodoCreate, username: str = Depends(get_current_user)):
+    """
+    Create a new todo with comprehensive feature support.
+    
+    Supports priority levels, due dates, note linking, and tagging for
+    complete task management and organization.
+    
+    Args:
+        todo: TodoCreate model with title, optional fields, and metadata
+        username: Current authenticated user (from session)
+        
+    Returns:
+        Todo creation confirmation with assigned ID
+    """
+    try:
+        session_id = get_session_id(username)
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Session not found")
+        
+        result = json.loads(notes_system.create_todo(
+            session_id, 
+            todo.title, 
+            todo.description, 
+            todo.due_date, 
+            todo.priority, 
+            todo.tags, 
+            todo.note_title
+        ))
+        if result["success"]:
+            return create_response(
+                success=True,
+                data={
+                    "todo_id": result.get("id"),
+                    "title": todo.title
+                },
+                message=result["message"]
+            )
+        else:
+            raise HTTPException(status_code=400, detail=result["message"])
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create todo: {str(e)}")
+
+@app.patch("/todos/{todo_id}/toggle")
+async def toggle_todo_completion(todo_id: int, username: str = Depends(get_current_user)):
+    """
+    Toggle todo completion status for task management.
+    
+    Switches between completed and incomplete states, enabling users
+    to track task progress and maintain productivity workflows.
+    
+    Args:
+        todo_id: ID of the todo to toggle
+        username: Current authenticated user (from session)
+        
+    Returns:
+        Status change confirmation or error if todo not found
+    """
+    try:
+        session_id = get_session_id(username)
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Session not found")
+        
+        result = json.loads(notes_system.toggle_todo(session_id, todo_id))
+        if result["success"]:
+            return create_response(
+                success=True,
+                data={"todo_id": todo_id},
+                message=result["message"]
+            )
+        else:
+            raise HTTPException(status_code=404, detail=result["message"])
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to toggle todo: {str(e)}")
+
+@app.delete("/todos/{todo_id}")
+async def delete_todo_item(todo_id: int, username: str = Depends(get_current_user)):
+    """
+    Delete a todo item with proper authorization checking.
+    
+    Permanently removes todo and associated relationships while ensuring
+    only the owner can delete their todos.
+    
+    Args:
+        todo_id: ID of the todo to delete
+        username: Current authenticated user (from session)
+        
+    Returns:
+        Deletion confirmation or error if todo not found
+    """
+    try:
+        session_id = get_session_id(username)
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Session not found")
+        
+        result = json.loads(notes_system.delete_todo(session_id, todo_id))
+        if result["success"]:
+            return create_response(
+                success=True,
+                data={"deleted_todo_id": todo_id},
+                message=result["message"]
+            )
+        else:
+            raise HTTPException(status_code=404, detail=result["message"])
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete todo: {str(e)}")
+
 # Root endpoint with API info
 @app.get("/")
 async def root():
@@ -461,7 +663,7 @@ async def root():
             "endpoints": {
                 "auth": ["/register", "/login", "/logout"],
                 "notes": ["/notes", "/notes/{title}", "/notes/search/{query}"],
-                "todos": ["Coming in next update"],
+                "todos": ["/todos", "/todos/{todo_id}"],
                 "other": ["/stats", "/health", "/test"]
             },
             "docs": "/docs"
