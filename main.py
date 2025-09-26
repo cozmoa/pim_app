@@ -1,15 +1,15 @@
 import json
 import uuid
 from typing import Optional, List, Dict, Any
-from database.py import NoteDatabase
+from database_pim_final import NoteDatabase
 
 class NoteDatabaseSystem:
     """
-    Business logic layer for the Personal Information Manager (PIM) system.
+    Comprehensive business logic layer for Personal Information Manager (PIM).
     
-    Provides secure, session-based access to note management functionality
-    with comprehensive validation, error handling, and user-friendly responses.
-    Coordinates between database operations and API endpoints.
+    Provides complete note management with search, tagging, analytics, and
+    secure session-based operations. Handles validation, error management,
+    and user experience optimization.
     """
     
     def __init__(self, db_path: str = "notes.db"):
@@ -17,7 +17,7 @@ class NoteDatabaseSystem:
         Initialize the system with database connection and session storage.
         
         Args:
-            db_path (str): Path to SQLite database file. Defaults to "notes.db"
+            db_path (str): Path to SQLite database file
             
         Raises:
             Exception: If database initialization fails
@@ -29,16 +29,7 @@ class NoteDatabaseSystem:
             raise Exception(f"Failed to initialize database: {str(e)}")
     
     def register_user(self, username: str, password: str) -> str:
-        """
-        Register a new user account with comprehensive input validation.
-        
-        Args:
-            username (str): Desired username for the account
-            password (str): Plain text password (will be hashed securely)
-            
-        Returns:
-            str: JSON response with success status and descriptive message
-        """
+        """Register a new user account with comprehensive validation."""
         try:
             if not username or not username.strip():
                 return json.dumps({"success": False, "message": "Username is required and cannot be empty"})
@@ -61,16 +52,7 @@ class NoteDatabaseSystem:
             return json.dumps({"success": False, "message": f"Registration failed: {str(e)}"})
 
     def login_user(self, username: str, password: str) -> str:
-        """
-        Authenticate user and create secure session with UUID-based session ID.
-        
-        Args:
-            username (str): Username to authenticate
-            password (str): Plain text password to verify
-            
-        Returns:
-            str: JSON response with session_id on success, error message on failure
-        """
+        """Authenticate user and create secure session."""
         try:
             if not username or not username.strip():
                 return json.dumps({"success": False, "message": "Username is required and cannot be empty"})
@@ -98,15 +80,7 @@ class NoteDatabaseSystem:
             return json.dumps({"success": False, "message": f"Login failed: {str(e)}"})
 
     def logout_user(self, session_id: str) -> str:
-        """
-        Logout user by invalidating their session.
-        
-        Args:
-            session_id (str): Session ID to invalidate
-            
-        Returns:
-            str: JSON response confirming logout status
-        """
+        """Logout user by invalidating session."""
         try:
             if session_id in self.active_sessions:
                 del self.active_sessions[session_id]
@@ -116,27 +90,11 @@ class NoteDatabaseSystem:
             return json.dumps({"success": False, "message": f"Logout failed: {str(e)}"})
 
     def _get_username_from_session(self, session_id: str) -> Optional[str]:
-        """
-        Retrieve username associated with a session ID for internal operations.
-        
-        Args:
-            session_id (str): Session ID to lookup
-            
-        Returns:
-            Optional[str]: Username if session valid, None if invalid
-        """
+        """Get username from session ID."""
         return self.active_sessions.get(session_id)
 
     def _validate_session(self, session_id: str) -> Optional[int]:
-        """
-        Validate session and return user ID for database operations.
-        
-        Args:
-            session_id (str): Session ID to validate
-            
-        Returns:
-            Optional[int]: User ID if session valid, None if invalid
-        """
+        """Validate session and return user_id."""
         try:
             username = self._get_username_from_session(session_id)
             if not username:
@@ -146,20 +104,7 @@ class NoteDatabaseSystem:
             return None
 
     def create_note(self, session_id: str, title: str, content: str) -> str:
-        """
-        Create a new note with session validation and duplicate prevention.
-        
-        Validates user session, checks for duplicate titles, and creates note
-        with proper error handling and user feedback.
-        
-        Args:
-            session_id (str): Valid session ID for authorization
-            title (str): Unique title for the note (per user)
-            content (str): Note content/body text
-            
-        Returns:
-            str: JSON response with note_id on success, error message on failure
-        """
+        """Create a new note with validation."""
         try:
             user_id = self._validate_session(session_id)
             if not user_id:
@@ -181,16 +126,7 @@ class NoteDatabaseSystem:
             return json.dumps({"success": False, "message": f"Failed to create note: {str(e)}"})
 
     def get_note(self, session_id: str, title: str) -> str:
-        """
-        Retrieve a specific note by title with complete metadata.
-        
-        Args:
-            session_id (str): Valid session ID for authorization
-            title (str): Title of the note to retrieve
-            
-        Returns:
-            str: JSON response with note data on success, error message on failure
-        """
+        """Get a specific note by title."""
         try:
             user_id = self._validate_session(session_id)
             if not user_id:
@@ -208,19 +144,7 @@ class NoteDatabaseSystem:
             return json.dumps({"success": False, "message": f"Failed to get note: {str(e)}"})
 
     def list_notes(self, session_id: str, limit: int = 50) -> str:
-        """
-        List all notes for the user with content previews for performance.
-        
-        Generates content previews (100 characters + "...") to prevent sending
-        large amounts of data for list views while providing enough context.
-        
-        Args:
-            session_id (str): Valid session ID for authorization
-            limit (int): Maximum number of notes to return. Defaults to 50
-            
-        Returns:
-            str: JSON response with notes list and count, or error message
-        """
+        """List all notes with content previews."""
         try:
             user_id = self._validate_session(session_id)
             if not user_id:
@@ -228,10 +152,10 @@ class NoteDatabaseSystem:
 
             notes = self.db.get_user_notes(user_id, limit)
 
-            # Create content previews for efficient list display
+            # Create preview for each note
             for note in notes:
                 note["preview"] = note["content"][:100] + ("..." if len(note["content"]) > 100 else "")
-                # Remove full content from list view to improve performance
+                # Remove full content from list view
                 del note["content"]
 
             return json.dumps({"success": True, "notes": notes, "count": len(notes)})
@@ -239,20 +163,7 @@ class NoteDatabaseSystem:
             return json.dumps({"success": False, "message": f"Failed to list notes: {str(e)}"})
 
     def edit_note(self, session_id: str, title: str, new_content: str) -> str:
-        """
-        Edit note content with automatic timestamp updates.
-        
-        Updates note content and refreshes modification timestamp for tracking
-        recent changes and activity.
-        
-        Args:
-            session_id (str): Valid session ID for authorization
-            title (str): Title of the note to edit
-            new_content (str): New content to replace existing content
-            
-        Returns:
-            str: JSON response confirming update success or error message
-        """
+        """Edit note content."""
         try:
             user_id = self._validate_session(session_id)
             if not user_id:
@@ -269,20 +180,7 @@ class NoteDatabaseSystem:
             return json.dumps({"success": False, "message": f"Failed to edit note: {str(e)}"})
         
     def update_note_title(self, session_id: str, old_title: str, new_title: str) -> str:
-        """
-        Update note title with duplicate prevention and validation.
-        
-        Checks for title conflicts before updating to prevent duplicate titles
-        within a user's note collection.
-        
-        Args:
-            session_id (str): Valid session ID for authorization
-            old_title (str): Current title of the note
-            new_title (str): New title to set (must be unique for this user)
-            
-        Returns:
-            str: JSON response confirming title update or error message
-        """
+        """Update note title with conflict prevention."""
         try:
             user_id = self._validate_session(session_id)
             if not user_id:
@@ -291,32 +189,19 @@ class NoteDatabaseSystem:
             if not old_title.strip() or not new_title.strip():
                 return json.dumps({"success": False, "message": "Both titles are required"})
             
-            # Check if new title would create a conflict
             existing_note = self.db.get_note_by_title(user_id, new_title.strip())
             if existing_note:
-                return json.dumps({"success": False, "message": "A note with that title already exists"})
+                return json.dumps({"success": False, "message": "Original note not found"})
     
             if self.db.update_note_title(user_id, old_title.strip(), new_title.strip()):
                 return json.dumps({"success": True, "message": "Note title updated successfully"})
             else:
-                return json.dumps({"success": False, "message": "Original note not found"})
+                return json.dumps({"success": False, "message": "Note not found"})
         except Exception as e:
             return json.dumps({"success": False, "message": f"Failed to update note title: {str(e)}"})       
                    
     def delete_note(self, session_id: str, title: str) -> str:
-        """
-        Delete a note with proper authorization and confirmation.
-        
-        Permanently removes note and all associated data including tags
-        and folder relationships through cascade operations.
-        
-        Args:
-            session_id (str): Valid session ID for authorization
-            title (str): Title of the note to delete
-            
-        Returns:
-            str: JSON response confirming deletion or error message
-        """
+        """Delete a note."""
         try:
             user_id = self._validate_session(session_id)
             if not user_id:
@@ -331,3 +216,97 @@ class NoteDatabaseSystem:
                 return json.dumps({"success": False, "message": "Note not found"})
         except Exception as e:
             return json.dumps({"success": False, "message": f"Failed to delete note: {str(e)}"})
+
+    def search_notes(self, session_id: str, query: str) -> str:
+        """
+        Search notes by keyword with fuzzy matching across titles and content.
+        
+        Performs LIKE-pattern matching against note titles and content, returning
+        results with extended previews (150 characters) for better context in
+        search results display.
+        
+        Args:
+            session_id (str): Valid session ID for authorization
+            query (str): Search term to match against note content
+            
+        Returns:
+            str: JSON response with search results and count, or error message
+        """
+        try:
+            user_id = self._validate_session(session_id)
+            if not user_id:
+                return json.dumps({"success": False, "message": "Not logged in"})
+
+            if not query.strip():
+                return json.dumps({"success": False, "message": "Search query is required"})
+
+            results = self.db.search_user_notes(user_id, query.strip())
+
+            # Create extended preview for search results (more context than list view)
+            for result in results:
+                result["preview"] = result["content"][:150] + ("..." if len(result["content"]) > 150 else "")
+                # Remove full content from search results for performance
+                del result["content"]
+
+            return json.dumps({"success": True, "results": results, "count": len(results)})
+        except Exception as e:
+            return json.dumps({"success": False, "message": f"Search failed: {str(e)}"})
+
+    def add_tags(self, session_id: str, title: str, tags: List[str]) -> str:
+        """
+        Add multiple tags to a note for organization and categorization.
+        
+        Validates and normalizes tag input, prevents duplicates, and uses
+        normalized tag storage for efficient tagging across the system.
+        
+        Args:
+            session_id (str): Valid session ID for authorization
+            title (str): Title of the note to tag
+            tags (List[str]): List of tag names to add to the note
+            
+        Returns:
+            str: JSON response with complete tag list or error message
+        """
+        try:
+            user_id = self._validate_session(session_id)
+            if not user_id:
+                return json.dumps({"success": False, "message": "Not logged in"})
+
+            if not title.strip():
+                return json.dumps({"success": False, "message": "Title is required"})
+
+            if not tags or not any(tag.strip() for tag in tags):
+                return json.dumps({"success": False, "message": "At least one valid tag is required"})
+
+            # Clean and normalize tags
+            clean_tags = [tag.strip() for tag in tags if tag.strip()]
+            all_tags = self.db.add_note_tags(user_id, title.strip(), clean_tags)
+            if all_tags is not None:
+                return json.dumps({"success": True, "tags": all_tags})
+            else:
+                return json.dumps({"success": False, "message": "Note not found"})
+        except Exception as e:
+            return json.dumps({"success": False, "message": f"Failed to add tags: {str(e)}"})
+
+    def get_stats(self, session_id: str) -> str:
+        """
+        Generate comprehensive user statistics for dashboard and analytics.
+        
+        Provides overview metrics including note counts, tag usage, recent activity,
+        and other analytics useful for user engagement and system insights.
+        
+        Args:
+            session_id (str): Valid session ID for authorization
+            
+        Returns:
+            str: JSON response with user statistics or error message
+        """
+        try:
+            user_id = self._validate_session(session_id)
+            if not user_id:
+                return json.dumps({"success": False, "message": "Not logged in"})
+
+            stats = self.db.get_user_stats(user_id)
+            return json.dumps({"success": True, "stats": stats})
+        except Exception as e:
+            return json.dumps({"success": False, "message": f"Failed to get stats: {str(e)}"})
