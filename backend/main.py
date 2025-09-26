@@ -467,6 +467,7 @@ class NoteDatabaseSystem:
         return json.dumps({"success": ok, "message": "Folder deleted" if ok else "Folder not found"})
 
     # -------- stats --------
+       # -------- stats --------
     def get_stats(self, session_id: str) -> str:
         """
         Retrieve aggregated user statistics.
@@ -480,7 +481,16 @@ class NoteDatabaseSystem:
         uid = self._uid(session_id)
         if not uid:
             return json.dumps({"success": False, "message": "Not logged in"})
+
         stats = self.db.get_user_stats(uid)
+
         data = {
-            "notes": stats["total_notes"],
-            "todos": stats["todos"]
+            "notes": stats.get("total_notes", 0),
+            "todos": stats.get("total_todos", 0),
+            "folders": stats.get("total_folders", 0),
+            "reminders": stats.get("total_reminders", 0),
+            "tags": stats.get("unique_tags", 0),
+            "recent_note": stats.get("recent_note", None),
+        }
+
+        return json.dumps({"success": True, "data": data})
