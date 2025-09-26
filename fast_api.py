@@ -12,7 +12,7 @@ from main_pim_final import NoteDatabaseSystem
 
 app = FastAPI(title="Notes & Todos API", version="1.0.0")
 
-# Add CORS middleware - ESSENTIAL for frontend integration
+# Add CORS middleware - ESSENTIAL for frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173"],  # React/Vite default ports
@@ -28,15 +28,7 @@ notes_system = NoteDatabaseSystem()
 
 # Helper function for session management
 def get_session_id(username: str) -> Optional[str]:
-    """
-    Get session_id for username from active sessions.
-    
-    Args:
-        username (str): Username to lookup session for
-        
-    Returns:
-        Optional[str]: Session ID if found, None otherwise
-    """
+    """Get session_id for username"""
     for sid, uname in notes_system.active_sessions.items():
         if uname == username:
             return sid
@@ -44,38 +36,21 @@ def get_session_id(username: str) -> Optional[str]:
 
 # Standardized response helper
 def create_response(success: bool, data: any = None, message: str = ""):
-    """
-    Create standardized API response format for consistent frontend integration.
-    
-    Args:
-        success (bool): Whether the operation was successful
-        data (any): Response data payload (optional)
-        message (str): Human-readable message (optional)
-        
-    Returns:
-        dict: Standardized response dictionary
-    """
+    """Create standardized API response"""
     return {
         "success": success,
         "data": data,
         "message": message
     }
 
-# Pydantic models for request/response validation
+# Pydantic models for request/response with validation (V2 style)
 class UserRegister(BaseModel):
-    """
-    User registration request model with comprehensive validation.
-    
-    Validates username and password requirements to ensure data quality
-    and security standards before account creation.
-    """
     username: str
     password: str
     
     @field_validator('username')
     @classmethod
     def username_must_be_valid(cls, v):
-        """Validate username meets requirements."""
         if not v or not v.strip():
             raise ValueError('Username cannot be empty')
         if len(v.strip()) < 3 or len(v.strip()) > 50:
@@ -85,7 +60,6 @@ class UserRegister(BaseModel):
     @field_validator('password')
     @classmethod
     def password_must_be_strong(cls, v):
-        """Validate password meets security requirements."""
         if not v:
             raise ValueError('Password cannot be empty')
         if len(v) < 6:
@@ -93,19 +67,12 @@ class UserRegister(BaseModel):
         return v
 
 class UserLogin(BaseModel):
-    """
-    User login request model with input validation.
-    
-    Ensures login credentials are properly formatted before
-    attempting authentication.
-    """
     username: str
     password: str
     
     @field_validator('username')
     @classmethod
     def username_not_empty(cls, v):
-        """Ensure username is provided."""
         if not v or not v.strip():
             raise ValueError('Username cannot be empty')
         return v.strip()
@@ -113,27 +80,68 @@ class UserLogin(BaseModel):
     @field_validator('password')
     @classmethod
     def password_not_empty(cls, v):
-        """Ensure password is provided."""
         if not v:
             raise ValueError('Password cannot be empty')
         return v
 
+class NoteCreate(BaseModel):
+    """
+    Note creation request model with comprehensive validation.
+    
+    Validates note title and content requirements to ensure data quality
+    and proper note structure for the system.
+    """
+    title: str
+    content: str
+    
+    @field_validator('title')
+    @classmethod
+    def title_must_be_valid(cls, v):
+        """Validate note title meets requirements."""
+        if not v or not v.strip():
+            raise ValueError('Title cannot be empty')
+        if len(v.strip()) > 200:
+            raise ValueError('Title must be less than 200 characters')
+        return v.strip()
+    
+    @field_validator('content')
+    @classmethod
+    def content_not_empty(cls, v):
+        """Ensure note content is provided."""
+        if not v or not v.strip():
+            raise ValueError('Content cannot be empty')
+        return v.strip()
+
+class NoteUpdate(BaseModel):
+    """
+    Note update request model supporting content and optional title changes.
+    
+    Allows updating note content and optionally changing the title while
+    maintaining validation requirements.
+    """
+    content: str
+    title: Optional[str] = None  # Allow title change
+    tags: Optional[str] = None  # Allow tags change
+    
+    @field_validator('content')
+    @classmethod
+    def content_not_empty(cls, v):
+        """Ensure updated content is valid."""
+        if not v or not v.strip():
+            raise ValueError('Content cannot be empty')
+        return v.strip()
+    
+    @field_validator('title')
+    @classmethod
+    def title_must_be_valid(cls, v):
+        """Validate new title if provided."""
+        if v is not None and (not v.strip() or len(v.strip()) > 200):
+            raise ValueError('Title must be 1-200 characters')
+        return v.strip() if v else None
+
 # Helper function to get username from session
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """
-    Extract and validate current user from session token.
-    
-    Used as FastAPI dependency to protect authenticated endpoints.
-    
-    Args:
-        credentials: HTTPBearer token containing session ID
-        
-    Returns:
-        str: Username of authenticated user
-        
-    Raises:
-        HTTPException: If session is invalid or expired
-    """
+    """Extract and validate current user from session token."""
     session_id = credentials.credentials
     username = notes_system._get_username_from_session(session_id)
     if not username:
@@ -143,12 +151,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 # Test endpoint
 @app.get("/test")
 async def test_endpoint():
-    """
-    Test endpoint to verify API is working and accessible.
-    
-    Returns basic system information and timestamp for debugging
-    and monitoring purposes.
-    """
+    """Test endpoint to verify API is working"""
     return create_response(
         success=True,
         data={"timestamp": datetime.now().isoformat(), "version": "1.0.0"},
@@ -158,11 +161,7 @@ async def test_endpoint():
 # Health check endpoint
 @app.get("/health")
 async def health_check():
-    """
-    Health check endpoint for monitoring and load balancer integration.
-    
-    Provides quick status check without heavy database operations.
-    """
+    """Health check endpoint"""
     return create_response(
         success=True,
         data={"status": "healthy"},
@@ -172,18 +171,7 @@ async def health_check():
 # Authentication endpoints
 @app.post("/register")
 async def register_user(user: UserRegister):
-    """
-    Register a new user account with comprehensive validation.
-    
-    Creates new user account with secure password hashing and
-    proper error handling for duplicate usernames.
-    
-    Args:
-        user: UserRegister model with username and password
-        
-    Returns:
-        Standardized response with success status and message
-    """
+    """Register a new user"""
     try:
         result = json.loads(notes_system.register_user(user.username, user.password))
         return create_response(
@@ -196,18 +184,7 @@ async def register_user(user: UserRegister):
 
 @app.post("/login")
 async def login_user(user: UserLogin):
-    """
-    Authenticate user and return session token for API access.
-    
-    Validates credentials and creates secure session for authenticated
-    API operations.
-    
-    Args:
-        user: UserLogin model with username and password
-        
-    Returns:
-        Session token and user info on success, error on failure
-    """
+    """Login user and get session token"""
     try:
         result = json.loads(notes_system.login_user(user.username, user.password))
         if result["success"]:
@@ -228,18 +205,7 @@ async def login_user(user: UserLogin):
 
 @app.post("/logout")
 async def logout_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """
-    Logout user and invalidate session token.
-    
-    Properly cleans up user session to prevent unauthorized access
-    after logout.
-    
-    Args:
-        credentials: HTTPBearer token to invalidate
-        
-    Returns:
-        Confirmation of logout operation
-    """
+    """Logout user"""
     try:
         session_id = credentials.credentials
         result = json.loads(notes_system.logout_user(session_id))
@@ -250,22 +216,251 @@ async def logout_user(credentials: HTTPAuthorizationCredentials = Depends(securi
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Logout failed: {str(e)}")
 
-# Root endpoint with API information
+# Notes endpoints
+@app.get("/notes")
+async def list_notes(limit: int = 50, username: str = Depends(get_current_user)):
+    """
+    Get all notes for the logged-in user with pagination support.
+    
+    Returns note list with content previews for efficient browsing.
+    Full content is excluded from list view to optimize performance.
+    
+    Args:
+        limit: Maximum number of notes to return (default 50)
+        username: Current authenticated user (from session)
+        
+    Returns:
+        List of notes with metadata and content previews
+    """
+    try:
+        session_id = get_session_id(username)
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Session not found")
+        
+        result = json.loads(notes_system.list_notes(session_id, limit))
+        if result["success"]:
+            return create_response(
+                success=True,
+                data={
+                    "notes": result["notes"],
+                    "count": result["count"]
+                },
+                message=f"Found {result['count']} notes"
+            )
+        else:
+            raise HTTPException(status_code=400, detail=result["message"])
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list notes: {str(e)}")
+
+@app.post("/notes")
+async def create_note(note: NoteCreate, username: str = Depends(get_current_user)):
+    """
+    Create a new note with title uniqueness validation.
+    
+    Creates new note ensuring title is unique within user's collection.
+    Validates input using Pydantic models before processing.
+    
+    Args:
+        note: NoteCreate model with title and content
+        username: Current authenticated user (from session)
+        
+    Returns:
+        Note creation confirmation with assigned note ID
+    """
+    try:
+        session_id = get_session_id(username)
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Session not found")
+        
+        result = json.loads(notes_system.create_note(session_id, note.title, note.content))
+        if result["success"]:
+            return create_response(
+                success=True,
+                data={
+                    "note_id": result.get("note_id"),
+                    "title": note.title
+                },
+                message=result["message"]
+            )
+        else:
+            raise HTTPException(status_code=400, detail=result["message"])
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create note: {str(e)}")
+
+@app.get("/notes/{title}")
+async def get_note(title: str, username: str = Depends(get_current_user)):
+    """
+    Get a specific note by title with complete content and metadata.
+    
+    Retrieves full note data including content, tags, and timestamps.
+    Used for note viewing and editing operations.
+    
+    Args:
+        title: Title of the note to retrieve
+        username: Current authenticated user (from session)
+        
+    Returns:
+        Complete note data or 404 if not found
+    """
+    try:
+        session_id = get_session_id(username)
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Session not found")
+        
+        result = json.loads(notes_system.get_note(session_id, title))
+        if result["success"]:
+            return create_response(
+                success=True,
+                data={"note": result["note"]},
+                message="Note retrieved successfully"
+            )
+        else:
+            raise HTTPException(status_code=404, detail=result["message"])
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get note: {str(e)}")
+
+@app.put("/notes/{title}")
+async def update_note(title: str, note_update: NoteUpdate, username: str = Depends(get_current_user)):
+    """
+    Update note content and optionally title with conflict prevention.
+    
+    Supports updating note content and changing title while preventing
+    duplicate titles within user's collection.
+    
+    Args:
+        title: Current title of the note to update
+        note_update: NoteUpdate model with new content and optional title
+        username: Current authenticated user (from session)
+        
+    Returns:
+        Update confirmation with new title information
+    """
+    try:
+        session_id = get_session_id(username)
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Session not found")
+        
+        # If title is being changed, check for conflicts
+        new_title = note_update.title if note_update.title else title
+        if new_title != title:
+            # Check if new title already exists
+            existing = json.loads(notes_system.get_note(session_id, new_title))
+            if existing["success"]:
+                raise HTTPException(status_code=400, detail="Note with that title already exists")
+        
+        # Update content
+        content_result = json.loads(notes_system.edit_note(session_id, title, note_update.content))
+        if not content_result["success"]:
+            raise HTTPException(status_code=400, detail=content_result["message"])
+        
+        # Update title if changed
+        if new_title != title:
+            title_result = json.loads(notes_system.update_note_title(session_id, title, new_title))
+            if not title_result["success"]:
+                raise HTTPException(status_code=400, detail=title_result["message"])
+        
+        return create_response(
+            success=True,
+            data={"title": new_title, "old_title": title},
+            message="Note updated successfully"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update note: {str(e)}")
+    
+@app.delete("/notes/{title}")
+async def delete_note(title: str, username: str = Depends(get_current_user)):
+    """
+    Delete a note permanently with authorization checking.
+    
+    Removes note and all associated data (tags, folder links) through
+    database cascade operations.
+    
+    Args:
+        title: Title of the note to delete
+        username: Current authenticated user (from session)
+        
+    Returns:
+        Deletion confirmation or error if note not found
+    """
+    try:
+        session_id = get_session_id(username)
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Session not found")
+        
+        result = json.loads(notes_system.delete_note(session_id, title))
+        if result["success"]:
+            return create_response(
+                success=True,
+                data={"deleted_title": title},
+                message=result["message"]
+            )
+        else:
+            raise HTTPException(status_code=400, detail=result["message"])
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete note: {str(e)}")
+
+@app.get("/notes/search/{query}")
+async def search_notes(query: str, username: str = Depends(get_current_user)):
+    """
+    Search notes by keyword with fuzzy matching.
+    
+    Performs LIKE-pattern matching across note titles and content,
+    returning results with extended previews for context.
+    
+    Args:
+        query: Search term to match against notes
+        username: Current authenticated user (from session)
+        
+    Returns:
+        List of matching notes with search previews
+    """
+    try:
+        if not query.strip():
+            raise HTTPException(status_code=400, detail="Search query cannot be empty")
+        
+        session_id = get_session_id(username)
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Session not found")
+        
+        result = json.loads(notes_system.search_notes(session_id, query))
+        if result["success"]:
+            return create_response(
+                success=True,
+                data={
+                    "results": result["results"],
+                    "count": result["count"],
+                    "query": query
+                },
+                message=f"Found {result['count']} results for '{query}'"
+            )
+        else:
+            raise HTTPException(status_code=400, detail=result["message"])
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+# Root endpoint with API info
 @app.get("/")
 async def root():
-    """
-    API information and available endpoints overview.
-    
-    Provides comprehensive API documentation links and endpoint summary
-    for developers integrating with the system.
-    """
+    """API information"""
     return create_response(
         success=True,
         data={
             "version": "1.0.0",
             "endpoints": {
                 "auth": ["/register", "/login", "/logout"],
-                "notes": ["Coming in next update"],
+                "notes": ["/notes", "/notes/{title}", "/notes/search/{query}"],
                 "todos": ["Coming in next update"],
                 "other": ["/stats", "/health", "/test"]
             },
