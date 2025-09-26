@@ -5,16 +5,27 @@ from typing import Optional, List, Dict, Any, Tuple
 
 class NoteDatabase:
     """
-    Comprehensive database layer for Personal Information Manager (PIM) system.
+    Complete database access layer for Personal Information Manager (PIM) system.
     
-    Supports user authentication, notes with tagging, todo management with priorities,
-    search functionality, and user analytics. Implements normalized database design
-    with proper security practices and data integrity constraints.
+    Provides comprehensive data persistence for users, notes with hierarchical folders,
+    todos with advanced filtering, tagging system, and search functionality. 
+    Implements secure authentication, proper normalization, performance optimization
+    through indexing, and maintains data integrity with foreign key constraints.
+    
+    Features:
+    - User authentication with bcrypt password hashing
+    - Notes with content versioning and metadata tracking  
+    - Hierarchical folder system for note organization
+    - Todo management with priorities, due dates, and completion tracking
+    - Normalized tagging system shared between notes and todos
+    - Full-text search across note content and titles
+    - User analytics and statistics for dashboard display
+    - Performance-optimized with strategic database indexes
     """
     
     def __init__(self, db_path: str = "notes.db"):
         """
-        Initialize database with complete schema for PIM functionality.
+        Initialize database connection and create optimized schema.
         
         Args:
             db_path (str): Path to SQLite database file. Defaults to "notes.db"
@@ -24,15 +35,16 @@ class NoteDatabase:
     
     def _init_database(self):
         """
-        Initialize comprehensive database schema for PIM system.
+        Initialize complete database schema with all tables, relationships, and indexes.
         
-        Creates all required tables: users, notes, todos, tags, and junction tables
-        with proper relationships, constraints, and indexes for optimal performance.
+        Creates the full PIM database structure including users, notes, todos, tags,
+        folders, and all junction tables. Implements proper foreign key constraints,
+        unique constraints, and performance indexes for optimal query execution.
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        # Users table with authentication
+        # Users table - Authentication and user management
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,7 +54,7 @@ class NoteDatabase:
             )
         ''')
 
-        # Notes table with content and metadata
+        # Notes table - Core content storage with metadata
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS notes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,7 +69,7 @@ class NoteDatabase:
             )
         ''')
 
-        # Tags table (shared between notes and todos)
+        # Tags table - Normalized tag storage shared across notes and todos
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tags (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,7 +77,7 @@ class NoteDatabase:
             )
         ''')
 
-        # Note-Tags junction table
+        # Note-Tags junction table - Many-to-many relationship for note tagging
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS note_tags (
                 note_id INTEGER,
@@ -76,7 +88,7 @@ class NoteDatabase:
             )
         ''')
 
-        # Todos table with priority and completion tracking
+        # Todos table - Task management with priorities and linking
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS todos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,7 +105,7 @@ class NoteDatabase:
             )
         ''')
 
-        # Todo-Tags junction table
+        # Todo-Tags junction table - Many-to-many relationship for todo tagging
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS todo_tags (
                 todo_id INTEGER,
@@ -104,6 +116,40 @@ class NoteDatabase:
             )
         ''')
 
+        # Folders table - Hierarchical folder structure for note organization
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS folders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                parent_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id),
+                FOREIGN KEY (parent_id) REFERENCES folders (id) ON DELETE CASCADE,
+                UNIQUE(user_id, name, parent_id)
+            )
+        ''')
+
+        # Note-Folder junction table - Many-to-many for flexible note organization
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS note_folders (
+                note_id INTEGER,
+                folder_id INTEGER,
+                PRIMARY KEY (note_id, folder_id),
+                FOREIGN KEY (note_id) REFERENCES notes (id) ON DELETE CASCADE,
+                FOREIGN KEY (folder_id) REFERENCES folders (id) ON DELETE CASCADE
+            )
+        ''')
+
+        # Performance indexes for frequently queried columns
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_folders_user_id ON folders(user_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON folders(parent_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_notes_user_id ON notes(user_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_notes_title ON notes(title)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_note_tags_note_id ON note_tags(note_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_todos_user_id ON todos(user_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_todo_tags_todo_id ON todo_tags(todo_id)')
+
         conn.commit()
         conn.close()
     
@@ -111,17 +157,20 @@ class NoteDatabase:
         """
         Hash password using bcrypt with salt for secure storage.
         
+        Uses bcrypt's adaptive hashing with automatic salt generation for
+        maximum security against rainbow table and brute force attacks.
+        
         Args:
             password (str): Plain text password to hash
             
         Returns:
-            str: Bcrypt hashed password with salt
+            str: Bcrypt hashed password with embedded salt
         """
         return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     
     def _verify_password(self, password: str, hash: str) -> bool:
         """
-        Verify password against bcrypt hash.
+        Verify password against stored bcrypt hash.
         
         Args:
             password (str): Plain text password to verify
@@ -371,7 +420,7 @@ class NoteDatabase:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Prevent duplicate titles for the same user
+            # Check if new title already exists for this user
             cursor.execute('SELECT id FROM notes WHERE user_id = ? AND title = ?', (user_id, new_title))
             if cursor.fetchone():
                 conn.close()
@@ -400,7 +449,7 @@ class NoteDatabase:
             title (str): Title of the note to delete
             
         Returns:
-            bool: True if note deleted successfully, False if note not found
+            bool: True if note was deleted successfully, False if note not found
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -415,16 +464,12 @@ class NoteDatabase:
         """
         Search notes by keyword matching in title or content.
         
-        Uses SQL LIKE pattern matching for flexible search across both
-        note titles and content. Results ordered by modification date.
-        
         Args:
             user_id (int): ID of the user whose notes to search
             query (str): Search term to match against title and content
             
         Returns:
             List[Dict[str, Any]]: List of matching notes with metadata
-                Each contains: id, title, content, created_at, modified_at
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -452,24 +497,12 @@ class NoteDatabase:
     
     def add_note_tags(self, user_id: int, title: str, tags: List[str]) -> Optional[List[str]]:
         """
-        Add multiple tags to a note using normalized tag storage.
-        
-        Creates new tag entries if they don't exist, then links them to the note
-        through the junction table. Prevents duplicate tag assignments.
-        
-        Args:
-            user_id (int): ID of the user who owns the note
-            title (str): Title of the note to tag
-            tags (List[str]): List of tag names to add
-            
-        Returns:
-            Optional[List[str]]: Complete list of all tags on the note if successful,
-                               None if note not found
+        Add tags to a note. Returns all tags if successful, None if note not found
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Get note ID and verify ownership
+        # Get note ID
         cursor.execute('SELECT id FROM notes WHERE user_id = ? AND title = ?', (user_id, title))
         note_result = cursor.fetchone()
         if not note_result:
@@ -480,18 +513,18 @@ class NoteDatabase:
         
         try:
             for tag_name in tags:
-                # Insert tag if it doesn't exist (normalized storage)
+                # Insert tag if it doesn't exist
                 cursor.execute('INSERT OR IGNORE INTO tags (name) VALUES (?)', (tag_name,))
                 
                 # Get tag ID
                 cursor.execute('SELECT id FROM tags WHERE name = ?', (tag_name,))
                 tag_id = cursor.fetchone()[0]
                 
-                # Link note and tag (prevent duplicates with INSERT OR IGNORE)
+                # Link note and tag
                 cursor.execute('INSERT OR IGNORE INTO note_tags (note_id, tag_id) VALUES (?, ?)', 
                              (note_id, tag_id))
             
-            # Return complete list of all tags for this note
+            # Get all tags for this note
             cursor.execute('''
                 SELECT t.name
                 FROM tags t
@@ -511,29 +544,16 @@ class NoteDatabase:
     
     def get_user_stats(self, user_id: int) -> Dict[str, Any]:
         """
-        Generate comprehensive user statistics including todos for dashboard display.
-        
-        Provides complete metrics for user overview including note counts,
-        tag usage, todo statistics, and recent activity.
-        
-        Args:
-            user_id (int): ID of the user to generate stats for
-            
-        Returns:
-            Dict[str, Any]: Comprehensive statistics dictionary containing:
-                - total_notes: Number of notes created by user
-                - total_tags: Number of unique tags used by user  
-                - total_todos: Number of todos created by user
-                - recent_note: Info about most recently modified note
+        Get user statistics
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Count total notes for user
+        # Count notes
         cursor.execute('SELECT COUNT(*) FROM notes WHERE user_id = ?', (user_id,))
         note_count = cursor.fetchone()[0]
         
-        # Count unique tags used by this user
+        # Count unique tags used by user
         cursor.execute('''
             SELECT COUNT(DISTINCT t.id)
             FROM tags t
@@ -543,7 +563,7 @@ class NoteDatabase:
         ''', (user_id,))
         tag_count = cursor.fetchone()[0]
         
-        # Get most recently modified note info
+        # Get most recent note
         cursor.execute('''
             SELECT title, modified_at
             FROM notes
@@ -553,7 +573,7 @@ class NoteDatabase:
         ''', (user_id,))
         recent_note = cursor.fetchone()
         
-        # Count todos for user
+        # Count todos
         cursor.execute('SELECT COUNT(*) FROM todos WHERE user_id = ?', (user_id,))
         todo_count = cursor.fetchone()[0]
         
@@ -573,29 +593,13 @@ class NoteDatabase:
     def create_todo(self, user_id: int, title: str, description: str = "", 
                    due_date: str = None, priority: str = "normal", 
                    note_title: str = None) -> Optional[int]:
-        """
-        Create a new todo item with optional note linking and priority setting.
-        
-        Supports linking todos to existing notes for context and reference,
-        priority levels for task organization, and flexible due date storage.
-        
-        Args:
-            user_id (int): ID of the user creating the todo
-            title (str): Title/summary of the todo item
-            description (str): Detailed description. Defaults to empty string
-            due_date (str): Due date in flexible string format. Defaults to None
-            priority (str): Priority level (low/normal/high). Defaults to "normal"
-            note_title (str): Title of note to link to. Defaults to None
-            
-        Returns:
-            Optional[int]: Todo ID if created successfully, None on error
-        """
+        """Create a new todo. Returns todo_id if successful"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
         note_id = None
         if note_title:
-            # Get note_id if linking to an existing note
+            # Get note_id if linking to a note
             cursor.execute('SELECT id FROM notes WHERE user_id = ? AND title = ?', 
                          (user_id, note_title))
             note_result = cursor.fetchone()
@@ -614,28 +618,11 @@ class NoteDatabase:
     
     def get_user_todos(self, user_id: int, status: str = None, tag: str = None,
                       priority: str = None, linked_to_note: str = None) -> List[Dict[str, Any]]:
-        """
-        Retrieve todos with comprehensive filtering for productivity workflows.
-        
-        Supports filtering by completion status, tags, priority levels, and
-        note linkage. Each todo includes all metadata and associated tags.
-        
-        Args:
-            user_id (int): ID of the user whose todos to retrieve
-            status (str): Filter by "open" or "done". None for all todos
-            tag (str): Filter by specific tag name. None for all tags
-            priority (str): Filter by priority level. None for all priorities  
-            linked_to_note (str): Filter by linked note title. None for all
-            
-        Returns:
-            List[Dict[str, Any]]: List of todo items with complete metadata
-                Each contains: id, title, description, due_date, priority,
-                completed, created_at, note_title, tags
-        """
+        """Get todos for a user with optional filters"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Build dynamic query with filters
+        # Build query with filters
         query = '''
             SELECT t.id, t.title, t.description, t.due_date, t.priority, 
                    t.completed, t.created_at, n.title as note_title
@@ -696,23 +683,11 @@ class NoteDatabase:
         return todos
     
     def toggle_todo(self, user_id: int, todo_id: int) -> bool:
-        """
-        Toggle todo completion status with ownership validation.
-        
-        Switches between completed and incomplete states while ensuring
-        only the owner can modify their todos.
-        
-        Args:
-            user_id (int): ID of the user who owns the todo
-            todo_id (int): ID of the todo to toggle
-            
-        Returns:
-            bool: True if toggled successfully, False if todo not found or not owned
-        """
+        """Toggle todo completion status. Returns True if successful"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Get current status and verify ownership
+        # First get current status
         cursor.execute('SELECT completed FROM todos WHERE id = ? AND user_id = ?', 
                       (todo_id, user_id))
         result = cursor.fetchone()
@@ -732,19 +707,7 @@ class NoteDatabase:
         return success
     
     def delete_todo(self, user_id: int, todo_id: int) -> bool:
-        """
-        Delete a todo and all associated tag relationships.
-        
-        Removes todo item and cleans up junction table entries automatically
-        through CASCADE delete constraints.
-        
-        Args:
-            user_id (int): ID of the user who owns the todo
-            todo_id (int): ID of the todo to delete
-            
-        Returns:
-            bool: True if deleted successfully, False if todo not found or not owned
-        """
+        """Delete a todo. Returns True if successful"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -756,21 +719,7 @@ class NoteDatabase:
         return success
     
     def add_todo_tags(self, user_id: int, todo_id: int, tags: List[str]) -> Optional[List[str]]:
-        """
-        Add multiple tags to a todo using shared normalized tag storage.
-        
-        Links todo items to existing tag system allowing todos and notes
-        to share the same tag vocabulary for consistent organization.
-        
-        Args:
-            user_id (int): ID of the user who owns the todo
-            todo_id (int): ID of the todo to tag
-            tags (List[str]): List of tag names to add
-            
-        Returns:
-            Optional[List[str]]: Complete list of all tags on the todo if successful,
-                               None if todo not found or not owned by user
-        """
+        """Add tags to a todo. Returns all tags if successful"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -783,18 +732,18 @@ class NoteDatabase:
         
         try:
             for tag_name in tags:
-                # Insert tag if it doesn't exist (shared with notes)
+                # Insert tag if it doesn't exist
                 cursor.execute('INSERT OR IGNORE INTO tags (name) VALUES (?)', (tag_name,))
                 
                 # Get tag ID
                 cursor.execute('SELECT id FROM tags WHERE name = ?', (tag_name,))
                 tag_id = cursor.fetchone()[0]
                 
-                # Link todo and tag (prevent duplicates)
+                # Link todo and tag
                 cursor.execute('INSERT OR IGNORE INTO todo_tags (todo_id, tag_id) VALUES (?, ?)', 
                              (todo_id, tag_id))
             
-            # Return complete list of all tags for this todo
+            # Get all tags for this todo
             cursor.execute('''
                 SELECT t.name
                 FROM tags t
@@ -811,3 +760,73 @@ class NoteDatabase:
         except Exception:
             conn.close()
             return None
+
+    
+    # Folder management methods
+    def create_folder(self, user_id: int, name: str, parent_id: int = None) -> Optional[int]:
+        """Create a new folder for user"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO folders (user_id, name, parent_id)
+                VALUES (?, ?, ?)
+            ''', (user_id, name, parent_id))
+            
+            folder_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+            return folder_id
+            
+        except sqlite3.IntegrityError:
+            conn.close()
+            return None
+
+    def get_user_folders_tree(self, user_id: int) -> List[Dict[str, Any]]:
+        """Get user's folder tree structure"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT id, name, parent_id, created_at
+            FROM folders
+            WHERE user_id = ?
+            ORDER BY parent_id, name
+        ''', (user_id,))
+        
+        folders = []
+        for row in cursor.fetchall():
+            folders.append({
+                "id": row[0],
+                "name": row[1], 
+                "parent_id": row[2],
+                "created_at": row[3]
+            })
+        
+        conn.close()
+        return folders
+
+    def link_note_to_folder(self, user_id: int, note_title: str, folder_id: int) -> bool:
+        """Link a note to a folder"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Get note ID
+        cursor.execute('SELECT id FROM notes WHERE user_id = ? AND title = ?', (user_id, note_title))
+        note_result = cursor.fetchone()
+        if not note_result:
+            conn.close()
+            return False
+        
+        note_id = note_result[0]
+        
+        try:
+            cursor.execute('INSERT OR IGNORE INTO note_folders (note_id, folder_id) VALUES (?, ?)',
+                          (note_id, folder_id))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception:
+            conn.close()
+            return False
