@@ -1,27 +1,19 @@
 import json
 import uuid
 from typing import Optional, List, Dict, Any
-from database_pim_final import NoteDatabase
+from database import NoteDatabase
 
 class NoteDatabaseSystem:
     """
-    Comprehensive business logic layer for Personal Information Manager (PIM).
+    Complete business logic layer for Personal Information Manager (PIM).
     
-    Provides complete note management with search, tagging, analytics, and
-    secure session-based operations. Handles validation, error management,
-    and user experience optimization.
+    Provides comprehensive note management, todo system, search functionality,
+    tagging, analytics, and secure session-based operations with full validation
+    and error handling.
     """
     
     def __init__(self, db_path: str = "notes.db"):
-        """
-        Initialize the system with database connection and session storage.
-        
-        Args:
-            db_path (str): Path to SQLite database file
-            
-        Raises:
-            Exception: If database initialization fails
-        """
+        """Initialize the system with database and session management."""
         try:
             self.db = NoteDatabase(db_path)
             self.active_sessions = {}  # session_id -> username mapping
@@ -29,7 +21,7 @@ class NoteDatabaseSystem:
             raise Exception(f"Failed to initialize database: {str(e)}")
     
     def register_user(self, username: str, password: str) -> str:
-        """Register a new user account with comprehensive validation."""
+        """Register a new user account."""
         try:
             if not username or not username.strip():
                 return json.dumps({"success": False, "message": "Username is required and cannot be empty"})
@@ -52,7 +44,7 @@ class NoteDatabaseSystem:
             return json.dumps({"success": False, "message": f"Registration failed: {str(e)}"})
 
     def login_user(self, username: str, password: str) -> str:
-        """Authenticate user and create secure session."""
+        """Authenticate user and create session."""
         try:
             if not username or not username.strip():
                 return json.dumps({"success": False, "message": "Username is required and cannot be empty"})
@@ -80,7 +72,7 @@ class NoteDatabaseSystem:
             return json.dumps({"success": False, "message": f"Login failed: {str(e)}"})
 
     def logout_user(self, session_id: str) -> str:
-        """Logout user by invalidating session."""
+        """Logout user."""
         try:
             if session_id in self.active_sessions:
                 del self.active_sessions[session_id]
@@ -104,7 +96,7 @@ class NoteDatabaseSystem:
             return None
 
     def create_note(self, session_id: str, title: str, content: str) -> str:
-        """Create a new note with validation."""
+        """Create a new note."""
         try:
             user_id = self._validate_session(session_id)
             if not user_id:
@@ -144,7 +136,7 @@ class NoteDatabaseSystem:
             return json.dumps({"success": False, "message": f"Failed to get note: {str(e)}"})
 
     def list_notes(self, session_id: str, limit: int = 50) -> str:
-        """List all notes with content previews."""
+        """List all notes for the user."""
         try:
             user_id = self._validate_session(session_id)
             if not user_id:
@@ -180,7 +172,7 @@ class NoteDatabaseSystem:
             return json.dumps({"success": False, "message": f"Failed to edit note: {str(e)}"})
         
     def update_note_title(self, session_id: str, old_title: str, new_title: str) -> str:
-        """Update note title with conflict prevention."""
+        """Update note title."""
         try:
             user_id = self._validate_session(session_id)
             if not user_id:
@@ -218,20 +210,7 @@ class NoteDatabaseSystem:
             return json.dumps({"success": False, "message": f"Failed to delete note: {str(e)}"})
 
     def search_notes(self, session_id: str, query: str) -> str:
-        """
-        Search notes by keyword with fuzzy matching across titles and content.
-        
-        Performs LIKE-pattern matching against note titles and content, returning
-        results with extended previews (150 characters) for better context in
-        search results display.
-        
-        Args:
-            session_id (str): Valid session ID for authorization
-            query (str): Search term to match against note content
-            
-        Returns:
-            str: JSON response with search results and count, or error message
-        """
+        """Search notes by keyword."""
         try:
             user_id = self._validate_session(session_id)
             if not user_id:
@@ -242,10 +221,10 @@ class NoteDatabaseSystem:
 
             results = self.db.search_user_notes(user_id, query.strip())
 
-            # Create extended preview for search results (more context than list view)
+            # Create preview for each result
             for result in results:
                 result["preview"] = result["content"][:150] + ("..." if len(result["content"]) > 150 else "")
-                # Remove full content from search results for performance
+                # Remove full content from search results
                 del result["content"]
 
             return json.dumps({"success": True, "results": results, "count": len(results)})
@@ -253,20 +232,7 @@ class NoteDatabaseSystem:
             return json.dumps({"success": False, "message": f"Search failed: {str(e)}"})
 
     def add_tags(self, session_id: str, title: str, tags: List[str]) -> str:
-        """
-        Add multiple tags to a note for organization and categorization.
-        
-        Validates and normalizes tag input, prevents duplicates, and uses
-        normalized tag storage for efficient tagging across the system.
-        
-        Args:
-            session_id (str): Valid session ID for authorization
-            title (str): Title of the note to tag
-            tags (List[str]): List of tag names to add to the note
-            
-        Returns:
-            str: JSON response with complete tag list or error message
-        """
+        """Add tags to a note."""
         try:
             user_id = self._validate_session(session_id)
             if not user_id:
@@ -278,7 +244,6 @@ class NoteDatabaseSystem:
             if not tags or not any(tag.strip() for tag in tags):
                 return json.dumps({"success": False, "message": "At least one valid tag is required"})
 
-            # Clean and normalize tags
             clean_tags = [tag.strip() for tag in tags if tag.strip()]
             all_tags = self.db.add_note_tags(user_id, title.strip(), clean_tags)
             if all_tags is not None:
@@ -289,18 +254,7 @@ class NoteDatabaseSystem:
             return json.dumps({"success": False, "message": f"Failed to add tags: {str(e)}"})
 
     def get_stats(self, session_id: str) -> str:
-        """
-        Generate comprehensive user statistics for dashboard and analytics.
-        
-        Provides overview metrics including note counts, tag usage, recent activity,
-        and other analytics useful for user engagement and system insights.
-        
-        Args:
-            session_id (str): Valid session ID for authorization
-            
-        Returns:
-            str: JSON response with user statistics or error message
-        """
+        """Get user statistics."""
         try:
             user_id = self._validate_session(session_id)
             if not user_id:
@@ -310,3 +264,145 @@ class NoteDatabaseSystem:
             return json.dumps({"success": True, "stats": stats})
         except Exception as e:
             return json.dumps({"success": False, "message": f"Failed to get stats: {str(e)}"})
+
+    # Todo methods using database
+    def create_todo(self, session_id: str, title: str, description: str = "", 
+                   due_date: str = None, priority: str = "normal", 
+                   tags: List[str] = None, note_title: str = None) -> str:
+        """
+        Create a new todo item with comprehensive feature support.
+        
+        Supports priority levels for task organization, optional due dates for
+        scheduling, note linking for context, and tag integration for categorization.
+        
+        Args:
+            session_id (str): Valid session ID for authorization
+            title (str): Title/summary of the todo item  
+            description (str): Detailed description. Defaults to empty string
+            due_date (str): Due date in flexible format. Defaults to None
+            priority (str): Priority level (low/normal/high). Defaults to "normal"
+            tags (List[str]): Optional list of tags to apply. Defaults to None
+            note_title (str): Title of note to link to. Defaults to None
+            
+        Returns:
+            str: JSON response with todo_id on success or error message
+        """
+        try:
+            user_id = self._validate_session(session_id)
+            if not user_id:
+                return json.dumps({"success": False, "message": "Not logged in"})
+            
+            if not title.strip():
+                return json.dumps({"success": False, "message": "Title is required"})
+            
+            # Validate and normalize priority
+            if priority not in {"low", "normal", "high"}:
+                priority = "normal"  # Default to normal if invalid
+            
+            todo_id = self.db.create_todo(user_id, title.strip(), description.strip() if description else "", 
+                                        due_date, priority, note_title.strip() if note_title else None)
+            
+            # Add tags to the todo if provided
+            if todo_id and tags:
+                clean_tags = [tag.strip() for tag in tags if tag.strip()]
+                if clean_tags:
+                    self.db.add_todo_tags(user_id, todo_id, clean_tags)
+            
+            return json.dumps({"success": True, "id": todo_id, "message": "Todo created"})
+        except Exception as e:
+            return json.dumps({"success": False, "message": f"Failed to create todo: {str(e)}"})
+
+    def list_todos(self, session_id: str, status: str = None, tag: str = None,
+                  priority: str = None, linked_to_note: str = None) -> str:
+        """
+        List todos with advanced filtering for productivity workflows.
+        
+        Supports multiple filter criteria to help users organize and manage
+        their tasks effectively. Filters can be combined for precise results.
+        
+        Args:
+            session_id (str): Valid session ID for authorization
+            status (str): Filter by "open" or "done". None for all todos
+            tag (str): Filter by specific tag name. None for all tags  
+            priority (str): Filter by priority level. None for all priorities
+            linked_to_note (str): Filter by linked note title. None for all
+            
+        Returns:
+            str: JSON response with filtered todo list or error message
+        """
+        try:
+            user_id = self._validate_session(session_id)
+            if not user_id:
+                return json.dumps({"success": False, "message": "Not logged in"})
+
+            todos = self.db.get_user_todos(user_id, status, tag, priority, linked_to_note)
+            
+            # Format response for API consistency
+            results = [
+                {
+                    "id": t["id"],
+                    "title": t["title"],
+                    "due_date": t["due_date"],
+                    "priority": t["priority"],
+                    "completed": t["completed"],
+                    "tags": t["tags"],
+                    "note_title": t["note_title"]
+                }
+                for t in todos
+            ]
+            
+            return json.dumps({"success": True, "results": results})
+        except Exception as e:
+            return json.dumps({"success": False, "message": f"Failed to list todos: {str(e)}"})
+
+    def toggle_todo(self, session_id: str, todo_id: int) -> str:
+        """
+        Toggle todo completion status for task management.
+        
+        Switches between completed and incomplete states, enabling users
+        to track task progress and maintain productivity workflows.
+        
+        Args:
+            session_id (str): Valid session ID for authorization
+            todo_id (int): ID of the todo to toggle
+            
+        Returns:
+            str: JSON response confirming status change or error message
+        """
+        try:
+            user_id = self._validate_session(session_id)
+            if not user_id:
+                return json.dumps({"success": False, "message": "Not logged in"})
+
+            if self.db.toggle_todo(user_id, todo_id):
+                return json.dumps({"success": True, "message": "Todo updated"})
+            else:
+                return json.dumps({"success": False, "message": "Todo not found"})
+        except Exception as e:
+            return json.dumps({"success": False, "message": f"Failed to toggle todo: {str(e)}"})
+
+    def delete_todo(self, session_id: str, todo_id: int) -> str:
+        """
+        Delete a todo item with proper authorization checking.
+        
+        Permanently removes todo and associated relationships while ensuring
+        only the owner can delete their todos.
+        
+        Args:
+            session_id (str): Valid session ID for authorization
+            todo_id (int): ID of the todo to delete
+            
+        Returns:
+            str: JSON response confirming deletion or error message
+        """
+        try:
+            user_id = self._validate_session(session_id)
+            if not user_id:
+                return json.dumps({"success": False, "message": "Not logged in"})
+
+            if self.db.delete_todo(user_id, todo_id):
+                return json.dumps({"success": True, "message": "Todo deleted"})
+            else:
+                return json.dumps({"success": False, "message": "Todo not found"})
+        except Exception as e:
+            return json.dumps({"success": False, "message": f"Failed to delete todo: {str(e)}"})
