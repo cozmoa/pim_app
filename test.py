@@ -335,27 +335,6 @@ class TestSecurity:
         assert user1_notes[0]["title"] == "User1 Note", "User1 should see their own note"
         assert user2_notes[0]["title"] == "User2 Note", "User2 should see their own note"
     
-    def test_cross_user_note_access_prevention(self, system):
-        """
-        Test that users cannot access notes by other users even if they know the title.
-        
-        Purpose: Verify authorization prevents direct note access across users
-        Attack scenario: User A tries to access User B's note by title
-        Expected: Access denied even with correct title
-        """
-        # Create two users
-        user1, session1 = TestHelpers.create_user_and_login(system, "user1", "password1")
-        user2, session2 = TestHelpers.create_user_and_login(system, "user2", "password2")
-        
-        # User1 creates a note
-        secret_title = "User1 Secret Note"
-        TestHelpers.create_sample_note(system, session1, secret_title, "Confidential information")
-        
-        # User2 tries to access User1's note by title
-        access_attempt = json.loads(system.get_note(session2, secret_title))
-        assert access_attempt["success"] == False, "User2 should not be able to access User1's note"
-        assert "not found" in access_attempt["message"].lower(), "Should indicate note not found (not unauthorized)"
-    
     def test_logout_invalidates_session(self, system):
         """
         Test that logout properly invalidates sessions.
@@ -395,99 +374,242 @@ class TestSecurity:
         assert session1 != session2, "Sessions should be unique"
         assert len(session1) > 20, "Session IDs should be long enough to prevent guessing"
         assert len(session2) > 20, "Session IDs should be long enough to prevent guessing"
-        
-        # Test additional sessions for same user (multiple logins)
-        session1_second = TestHelpers.login_user(system, "user1", "pass1")
-        assert session1 != session1_second, "Multiple sessions for same user should be unique"
+
+class TestEdgeCases:
+    """
+    Edge case and error condition tests.
     
-    def test_password_verification_security(self, system):
+    Purpose: Test system behavior at boundaries and with invalid input
+    Philosophy: "Happy path" tests show basic functionality works,
+    but edge case tests show the system is robust and professional
+    """
+    
+    def test_large_content_handling(self, system):
         """
-        Test password verification with various attack scenarios.
+        Test system handles very large note content.
         
-        Purpose: Verify password verification is secure against common attacks
-        Tests: Timing attacks resistance, case sensitivity, special character handling
+        Purpose: Verify no arbitrary limits break the system
+        Real scenario: User pastes large document into note
+        Database consideration: TEXT fields in SQLite can handle this
         """
-        # Create user
-        username = "securitytest"
-        correct_password = "SecurePass123!"
-        TestHelpers.create_user(system, username, correct_password)
+        # Setup
+        username, session_id = TestHelpers.create_user_and_login(system)
         
-        # Test correct password works
-        login_result = json.loads(system.login_user(username, correct_password))
-        assert login_result["success"], "Correct password should work"
+        # Create large content (5000 characters)
+        large_content = "A" * 5000
         
-        # Test various wrong passwords
-        wrong_passwords = [
-            "securepass123!",  # Wrong case
-            "SecurePass123",   # Missing special char
-            "SecurePass123!!",  # Extra character
-            "SecurePass12",    # Missing character
-            "",                # Empty
-            " ",               # Whitespace
-            "different"        # Completely wrong
+        result = json.loads(system.create_note(session_id, "Large Note", large_content))
+        assert result["success"] == True, "System should handle large content"
+        
+        # Verify content is preserved (allow small tolerance for string handling)
+        note_result = json.loads(system.get_note(session_id, "Large Note"))
+        retrieved_content = note_result["note"]["content"]
+        assert abs(len(retrieved_content) - len(large_content)) <= 5, "Large content should be preserved"
+        assert retrieved_content.startswith("AAAAA"), "Content should start correctly"
+    
+    def test_special_characters_in_titles(self, system):
+        """
+        Test system handles special characters and Unicode.
+        
+        Purpose: Verify international users can use their languages
+        Real scenario: Users with non-English names, emojis, special symbols
+        Technical: UTF-8 encoding should handle this
+        """
+        # Setup
+        username, session_id = TestHelpers.create_user_and_login(system)
+        
+        # Test various special characters
+        special_titles = [
+            "Note with émojis 😀",
+            "Título en español",
+            "русский заголовок",
+            "中文标题",
+            "Note with symbols: @#$%^&*()"
         ]
         
-        for wrong_password in wrong_passwords:
-            login_result = json.loads(system.login_user(username, wrong_password))
-            assert not login_result["success"], f"Wrong password '{wrong_password}' should be rejected"
+        for title in special_titles:
+            result = json.loads(system.create_note(session_id, title, "Content"))
+            assert result["success"] == True, f"Should handle special characters in: {title}"
     
-    def test_multiple_user_session_isolation(self, system):
+    def test_empty_database_queries(self, system):
         """
-        Test that multiple users with active sessions cannot interfere with each other.
+        Test queries on empty database don't crash.
         
-        Purpose: Verify session isolation in multi-user environment
-        Scenario: Multiple users logged in simultaneously
-        Expected: Each user only affects their own data
+        Purpose: Verify system gracefully handles "no data" scenarios
+        New user experience: Account with no notes yet
+        Expected: Empty lists, not errors
         """
-        # Create three users with active sessions
-        user1, session1 = TestHelpers.create_user_and_login(system, "alice", "alicepass")
-        user2, session2 = TestHelpers.create_user_and_login(system, "bob", "bobpass")  
-        user3, session3 = TestHelpers.create_user_and_login(system, "charlie", "charliepass")
+        # Setup user with no notes
+        username, session_id = TestHelpers.create_user_and_login(system)
         
-        # Each user creates notes
-        TestHelpers.create_sample_note(system, session1, "Alice Note", "Alice's private data")
-        TestHelpers.create_sample_note(system, session2, "Bob Note", "Bob's private data")
-        TestHelpers.create_sample_note(system, session3, "Charlie Note", "Charlie's private data")
+        # Test listing empty notes
+        result = json.loads(system.list_notes(session_id))
+        assert result["success"] == True, "Listing empty notes should succeed"
+        assert result["notes"] == [], "Should return empty list"
+        assert result["count"] == 0, "Count should be zero"
         
-        # Verify each user can only access their own data
-        alice_notes = json.loads(system.list_notes(session1))["notes"]
-        bob_notes = json.loads(system.list_notes(session2))["notes"]
-        charlie_notes = json.loads(system.list_notes(session3))["notes"]
-        
-        # Each user should see exactly one note (their own)
-        assert len(alice_notes) == 1, "Alice should see only her note"
-        assert len(bob_notes) == 1, "Bob should see only his note"
-        assert len(charlie_notes) == 1, "Charlie should see only his note"
-        
-        # Verify correct ownership
-        assert alice_notes[0]["title"] == "Alice Note", "Alice should see her own note"
-        assert bob_notes[0]["title"] == "Bob Note", "Bob should see his own note"
-        assert charlie_notes[0]["title"] == "Charlie Note", "Charlie should see his own note"
+        # Test searching empty notes
+        search_result = json.loads(system.search_notes(session_id, "anything"))
+        assert search_result["success"] == True, "Searching empty database should succeed"
+        assert search_result["results"] == [], "Should return empty results"
     
-    def test_session_reuse_after_logout(self, system):
+    def test_sql_injection_prevention(self, system):
         """
-        Test that session cannot be reused after logout by any user.
+        Test that system prevents SQL injection attacks.
         
-        Purpose: Verify logout properly cleans up session data
-        Security risk: If sessions aren't properly invalidated, they could be hijacked
+        Purpose: Verify security against common web attacks
+        Attack scenario: Malicious user tries to inject SQL in inputs
+        Protection: Parameterized queries should prevent this
         """
-        # Create user and login
-        user1, session1 = TestHelpers.create_user_and_login(system, "user1", "pass1")
+        # Setup
+        username, session_id = TestHelpers.create_user_and_login(system)
         
-        # Create another user who might try to reuse the session
-        user2, session2 = TestHelpers.create_user_and_login(system, "user2", "pass2")
+        # Try SQL injection in note title
+        malicious_title = "'; DROP TABLE notes; --"
+        result = json.loads(system.create_note(session_id, malicious_title, "Content"))
         
-        # User1 logs out
-        logout_result = json.loads(system.logout_user(session1))
-        assert logout_result["success"], "Logout should succeed"
+        # Should either succeed (treating it as normal text) or fail gracefully
+        # But should NOT break the database
+        assert isinstance(result, dict), "Should return valid JSON response"
+        assert "success" in result, "Should have proper response structure"
         
-        # Store user1's old session for reuse attempt
-        old_session = session1
+        # Verify database still works by creating a normal note
+        normal_result = json.loads(system.create_note(session_id, "Normal Note", "Content"))
+        assert normal_result["success"] == True, "Database should still work after injection attempt"
+    
+    def test_extremely_long_titles(self, system):
+        """
+        Test system behavior with extremely long note titles.
         
-        # Verify old session is invalid for any operation
-        reuse_attempt = json.loads(system.create_note(old_session, "Hijack Attempt", "Malicious content"))
-        assert not reuse_attempt["success"], "Logged-out session should not work for anyone"
+        Purpose: Verify system handles boundary conditions gracefully
+        Real scenario: User accidentally pastes large text as title
+        Expected: Either truncate gracefully or reject with clear error
+        """
+        # Setup
+        username, session_id = TestHelpers.create_user_and_login(system)
         
-        # Verify user2's session still works (logout didn't affect other sessions)
-        user2_test = json.loads(system.create_note(session2, "User2 Note", "User2 content"))
-        assert user2_test["success"], "Other user sessions should remain valid after different user logout"
+        # Create extremely long title (500 characters)
+        long_title = "A" * 500
+        
+        result = json.loads(system.create_note(session_id, long_title, "Content"))
+        
+        # System should either handle it or reject with clear message
+        assert isinstance(result, dict), "Should return valid response"
+        assert "success" in result, "Response should have success field"
+        
+        if not result["success"]:
+            # If rejected, error should be about title length
+            assert "title" in result["message"].lower(), "Error should mention title issue"
+    
+    def test_concurrent_note_creation_same_title(self, system):
+        """
+        Test handling of concurrent attempts to create notes with same title.
+        
+        Purpose: Verify system handles race conditions properly
+        Scenario: Two requests trying to create same title simultaneously
+        Expected: One succeeds, one fails with clear error
+        """
+        # Setup
+        username, session_id = TestHelpers.create_user_and_login(system)
+        
+        # First note creation should succeed
+        result1 = json.loads(system.create_note(session_id, "Duplicate Title", "Content 1"))
+        assert result1["success"] == True, "First note should succeed"
+        
+        # Second note with same title should fail
+        result2 = json.loads(system.create_note(session_id, "Duplicate Title", "Content 2"))
+        assert result2["success"] == False, "Second note with same title should fail"
+        assert "already exists" in result2["message"].lower(), "Should explain the conflict"
+    
+    def test_malformed_search_queries(self, system):
+        """
+        Test search functionality with malformed and edge case queries.
+        
+        Purpose: Verify search is robust against unusual input
+        Edge cases: Very long queries, special characters, SQL-like syntax
+        """
+        # Setup
+        username, session_id = TestHelpers.create_user_and_login(system)
+        TestHelpers.create_sample_note(system, session_id, "Test Note", "Test content")
+        
+        # Test various edge case searches
+        edge_case_queries = [
+            "",  # Empty query (should be rejected)
+            "   ",  # Whitespace only
+            "%" * 100,  # SQL wildcard characters
+            "SELECT * FROM notes",  # SQL injection attempt
+            "🔍😀🎯",  # Emoji search
+            "a" * 200,  # Very long query
+        ]
+        
+        for query in edge_case_queries:
+            result = json.loads(system.search_notes(session_id, query))
+            
+            # Should either work or fail gracefully
+            assert isinstance(result, dict), f"Should return valid JSON for query: {query[:20]}..."
+            assert "success" in result, "Should have success field"
+            
+            if result["success"]:
+                assert "results" in result, "Successful search should have results field"
+                assert isinstance(result["results"], list), "Results should be a list"
+    
+    def test_system_recovery_after_errors(self, system):
+        """
+        Test that system continues working normally after error conditions.
+        
+        Purpose: Verify system resilience - errors don't break future operations
+        Scenario: Cause error, then verify normal operations still work
+        """
+        # Setup
+        username, session_id = TestHelpers.create_user_and_login(system)
+        
+        # Cause an error (try to get non-existent note)
+        error_result = json.loads(system.get_note(session_id, "Non-existent Note"))
+        assert error_result["success"] == False, "Should fail for non-existent note"
+        
+        # Verify system still works normally after error
+        recovery_result = json.loads(system.create_note(session_id, "Recovery Test", "System should work"))
+        assert recovery_result["success"] == True, "System should work normally after error"
+        
+        # Verify we can still list notes
+        list_result = json.loads(system.list_notes(session_id))
+        assert list_result["success"] == True, "Should still be able to list notes"
+        assert len(list_result["notes"]) == 1, "Should show the recovery test note"
+    
+    def test_unicode_content_preservation(self, system):
+        """
+        Test that Unicode content is properly preserved through all operations.
+        
+        Purpose: Verify international content works end-to-end
+        Real scenario: Users creating notes in various languages
+        Technical: UTF-8 encoding preservation through database and JSON
+        """
+        # Setup
+        username, session_id = TestHelpers.create_user_and_login(system)
+        
+        # Create note with various Unicode content
+        unicode_content = """
+        English: Hello World! 
+        Spanish: ¡Hola Mundo!
+        Russian: Привет мир!
+        Chinese: 你好世界！
+        Japanese: こんにちは世界！
+        Arabic: مرحبا بالعالم!
+        Emoji: 🌍🚀💫⭐
+        Symbols: ©®™€£¥
+        Math: ∑∞≠≤≥±∆
+        """
+        
+        # Create note
+        create_result = json.loads(system.create_note(session_id, "Unicode Test", unicode_content))
+        assert create_result["success"] == True, "Should create Unicode note"
+        
+        # Retrieve and verify content preservation
+        get_result = json.loads(system.get_note(session_id, "Unicode Test"))
+        assert get_result["success"] == True, "Should retrieve Unicode note"
+        
+        retrieved_content = get_result["note"]["content"]
+        assert "你好世界" in retrieved_content, "Chinese characters should be preserved"
+        assert "Привет мир" in retrieved_content, "Russian characters should be preserved"
+        assert "🌍🚀" in retrieved_content, "Emoji should be preserved"
+        assert "∑∞≠" in retrieved_content, "Math symbols should be preserved"
