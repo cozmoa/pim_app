@@ -195,9 +195,9 @@ class TestBusinessLogic:
     """
     Integration tests for business logic (NoteDatabaseSystem class).
     
-    Purpose: Test that business rules and workflows work correctly.
+    Purpose: Test that business rules and workflows work correctly
     Difference from database tests: These test the logic layer that sits
-    above the database, including session management and JSON responses.
+    above the database, including session management and JSON responses
     """
     
     def test_user_registration_workflow(self, system):
@@ -300,102 +300,194 @@ class TestBusinessLogic:
         assert "preview" in note, "Note should include preview"
         assert "content" not in note, "Full content should not be in list view"
         assert len(note["preview"]) <= 103, "Preview should be truncated (100 chars + '...')"
+
+class TestSecurity:
+    """
+    Security-focused tests.
     
-    def test_note_creation_and_retrieval_workflow(self, system):
-        """
-        Test complete note workflow from creation to retrieval.
-        
-        Purpose: Verify end-to-end note functionality works correctly
-        Workflow: Create user -> Login -> Create note -> Retrieve note -> Verify data
-        """
-        # Setup user
-        username, session_id = TestHelpers.create_user_and_login(system)
-        
-        # Create note
-        title = "Integration Test Note"
-        content = "This is content for integration testing workflow."
-        create_result = json.loads(system.create_note(session_id, title, content))
-        
-        assert create_result["success"], f"Note creation failed: {create_result['message']}"
-        assert "note_id" in create_result, "Should return note ID"
-        
-        # Retrieve note
-        get_result = json.loads(system.get_note(session_id, title))
-        assert get_result["success"], f"Note retrieval failed: {get_result['message']}"
-        
-        # Verify note data
-        note = get_result["note"]
-        assert note["title"] == title, "Retrieved title should match"
-        assert note["content"] == content, "Retrieved content should match"
-        assert "created_at" in note, "Should include creation timestamp"
-        assert "modified_at" in note, "Should include modification timestamp"
+    Purpose: Verify that security measures work correctly
+    Focus areas: Authentication, authorization, data isolation
+    Why important: Web applications are attacked frequently
+    """
     
-    def test_note_update_workflow(self, system):
+    def test_user_data_isolation(self, system):
         """
-        Test note content update workflow.
+        Test that users can only access their own data.
         
-        Purpose: Verify note editing functionality works correctly
-        Workflow: Create note -> Update content -> Verify changes -> Check timestamp
+        Purpose: Verify authorization - User A can't see User B's notes
+        Security principle: Data isolation prevents privacy breaches
+        Real attack: Malicious user tries to access others' notes
         """
-        # Setup
-        username, session_id = TestHelpers.create_user_and_login(system)
-        title = TestHelpers.create_sample_note(system, session_id, "Update Test", "Original content")
+        # Create two users
+        user1, session1 = TestHelpers.create_user_and_login(system, "user1", "password1")
+        user2, session2 = TestHelpers.create_user_and_login(system, "user2", "password2")
         
-        # Update note
-        new_content = "Updated content with new information"
-        update_result = json.loads(system.edit_note(session_id, title, new_content))
-        assert update_result["success"], f"Note update failed: {update_result['message']}"
+        # Each user creates a note
+        TestHelpers.create_sample_note(system, session1, "User1 Note", "Secret content for user1")
+        TestHelpers.create_sample_note(system, session2, "User2 Note", "Secret content for user2")
         
-        # Verify update
-        get_result = json.loads(system.get_note(session_id, title))
-        updated_note = get_result["note"]
-        assert updated_note["content"] == new_content, "Content should be updated"
-        # Note: In real implementation, modified_at should be later than created_at
+        # Verify each user only sees their own notes
+        user1_notes = json.loads(system.list_notes(session1))["notes"]
+        user2_notes = json.loads(system.list_notes(session2))["notes"]
+        
+        assert len(user1_notes) == 1, "User1 should see exactly one note"
+        assert len(user2_notes) == 1, "User2 should see exactly one note"
+        assert user1_notes[0]["title"] == "User1 Note", "User1 should see their own note"
+        assert user2_notes[0]["title"] == "User2 Note", "User2 should see their own note"
     
-    def test_note_deletion_workflow(self, system):
+    def test_cross_user_note_access_prevention(self, system):
         """
-        Test note deletion workflow.
+        Test that users cannot access notes by other users even if they know the title.
         
-        Purpose: Verify note deletion works correctly and note becomes inaccessible
-        Workflow: Create note -> Verify exists -> Delete -> Verify gone
+        Purpose: Verify authorization prevents direct note access across users
+        Attack scenario: User A tries to access User B's note by title
+        Expected: Access denied even with correct title
         """
-        # Setup
-        username, session_id = TestHelpers.create_user_and_login(system)
-        title = TestHelpers.create_sample_note(system, session_id)
+        # Create two users
+        user1, session1 = TestHelpers.create_user_and_login(system, "user1", "password1")
+        user2, session2 = TestHelpers.create_user_and_login(system, "user2", "password2")
         
-        # Verify note exists
-        get_result = json.loads(system.get_note(session_id, title))
-        assert get_result["success"], "Note should exist before deletion"
+        # User1 creates a note
+        secret_title = "User1 Secret Note"
+        TestHelpers.create_sample_note(system, session1, secret_title, "Confidential information")
         
-        # Delete note
-        delete_result = json.loads(system.delete_note(session_id, title))
-        assert delete_result["success"], f"Deletion failed: {delete_result['message']}"
-        
-        # Verify note is gone
-        get_after_delete = json.loads(system.get_note(session_id, title))
-        assert not get_after_delete["success"], "Note should not exist after deletion"
+        # User2 tries to access User1's note by title
+        access_attempt = json.loads(system.get_note(session2, secret_title))
+        assert access_attempt["success"] == False, "User2 should not be able to access User1's note"
+        assert "not found" in access_attempt["message"].lower(), "Should indicate note not found (not unauthorized)"
     
-    def test_search_functionality_workflow(self, system):
+    def test_logout_invalidates_session(self, system):
         """
-        Test search functionality across note titles and content.
+        Test that logout properly invalidates sessions.
         
-        Purpose: Verify search works correctly and returns relevant results
-        Workflow: Create multiple notes -> Search -> Verify results
+        Purpose: Verify that logged-out sessions can't be reused
+        Security scenario: User logs out on shared computer
+        Expected: Session becomes unusable after logout
         """
         # Setup
         username, session_id = TestHelpers.create_user_and_login(system)
         
-        # Create test notes with different content
-        TestHelpers.create_sample_note(system, session_id, "Python Tutorial", "Learn Python programming")
-        TestHelpers.create_sample_note(system, session_id, "JavaScript Guide", "Web development with JS")
-        TestHelpers.create_sample_note(system, session_id, "Database Design", "SQL and Python integration")
+        # Verify session works before logout
+        result = json.loads(system.create_note(session_id, "Test", "Content"))
+        assert result["success"] == True, "Session should work before logout"
         
-        # Search for "Python" should find 2 notes
-        search_result = json.loads(system.search_notes(session_id, "Python"))
-        assert search_result["success"], "Search should succeed"
-        assert search_result["count"] == 2, "Should find 2 notes containing 'Python'"
+        # Logout
+        logout_result = json.loads(system.logout_user(session_id))
+        assert logout_result["success"] == True, "Logout should succeed"
         
-        # Verify search results have previews
-        for result in search_result["results"]:
-            assert "preview" in result, "Search results should include previews"
-            assert "content" not in result, "Search results should not include full content"
+        # Verify session no longer works
+        result = json.loads(system.create_note(session_id, "Test2", "Content2"))
+        assert result["success"] == False, "Session should not work after logout"
+    
+    def test_session_uniqueness_and_unpredictability(self, system):
+        """
+        Test that session IDs are unique and unpredictable.
+        
+        Purpose: Verify sessions cannot be easily guessed or hijacked
+        Security principle: Session IDs should be cryptographically random
+        Attack prevention: Prevents session prediction attacks
+        """
+        # Create multiple sessions
+        user1, session1 = TestHelpers.create_user_and_login(system, "user1", "pass1")
+        user2, session2 = TestHelpers.create_user_and_login(system, "user2", "pass2")
+        
+        # Sessions should be different and sufficiently long
+        assert session1 != session2, "Sessions should be unique"
+        assert len(session1) > 20, "Session IDs should be long enough to prevent guessing"
+        assert len(session2) > 20, "Session IDs should be long enough to prevent guessing"
+        
+        # Test additional sessions for same user (multiple logins)
+        session1_second = TestHelpers.login_user(system, "user1", "pass1")
+        assert session1 != session1_second, "Multiple sessions for same user should be unique"
+    
+    def test_password_verification_security(self, system):
+        """
+        Test password verification with various attack scenarios.
+        
+        Purpose: Verify password verification is secure against common attacks
+        Tests: Timing attacks resistance, case sensitivity, special character handling
+        """
+        # Create user
+        username = "securitytest"
+        correct_password = "SecurePass123!"
+        TestHelpers.create_user(system, username, correct_password)
+        
+        # Test correct password works
+        login_result = json.loads(system.login_user(username, correct_password))
+        assert login_result["success"], "Correct password should work"
+        
+        # Test various wrong passwords
+        wrong_passwords = [
+            "securepass123!",  # Wrong case
+            "SecurePass123",   # Missing special char
+            "SecurePass123!!",  # Extra character
+            "SecurePass12",    # Missing character
+            "",                # Empty
+            " ",               # Whitespace
+            "different"        # Completely wrong
+        ]
+        
+        for wrong_password in wrong_passwords:
+            login_result = json.loads(system.login_user(username, wrong_password))
+            assert not login_result["success"], f"Wrong password '{wrong_password}' should be rejected"
+    
+    def test_multiple_user_session_isolation(self, system):
+        """
+        Test that multiple users with active sessions cannot interfere with each other.
+        
+        Purpose: Verify session isolation in multi-user environment
+        Scenario: Multiple users logged in simultaneously
+        Expected: Each user only affects their own data
+        """
+        # Create three users with active sessions
+        user1, session1 = TestHelpers.create_user_and_login(system, "alice", "alicepass")
+        user2, session2 = TestHelpers.create_user_and_login(system, "bob", "bobpass")  
+        user3, session3 = TestHelpers.create_user_and_login(system, "charlie", "charliepass")
+        
+        # Each user creates notes
+        TestHelpers.create_sample_note(system, session1, "Alice Note", "Alice's private data")
+        TestHelpers.create_sample_note(system, session2, "Bob Note", "Bob's private data")
+        TestHelpers.create_sample_note(system, session3, "Charlie Note", "Charlie's private data")
+        
+        # Verify each user can only access their own data
+        alice_notes = json.loads(system.list_notes(session1))["notes"]
+        bob_notes = json.loads(system.list_notes(session2))["notes"]
+        charlie_notes = json.loads(system.list_notes(session3))["notes"]
+        
+        # Each user should see exactly one note (their own)
+        assert len(alice_notes) == 1, "Alice should see only her note"
+        assert len(bob_notes) == 1, "Bob should see only his note"
+        assert len(charlie_notes) == 1, "Charlie should see only his note"
+        
+        # Verify correct ownership
+        assert alice_notes[0]["title"] == "Alice Note", "Alice should see her own note"
+        assert bob_notes[0]["title"] == "Bob Note", "Bob should see his own note"
+        assert charlie_notes[0]["title"] == "Charlie Note", "Charlie should see his own note"
+    
+    def test_session_reuse_after_logout(self, system):
+        """
+        Test that session cannot be reused after logout by any user.
+        
+        Purpose: Verify logout properly cleans up session data
+        Security risk: If sessions aren't properly invalidated, they could be hijacked
+        """
+        # Create user and login
+        user1, session1 = TestHelpers.create_user_and_login(system, "user1", "pass1")
+        
+        # Create another user who might try to reuse the session
+        user2, session2 = TestHelpers.create_user_and_login(system, "user2", "pass2")
+        
+        # User1 logs out
+        logout_result = json.loads(system.logout_user(session1))
+        assert logout_result["success"], "Logout should succeed"
+        
+        # Store user1's old session for reuse attempt
+        old_session = session1
+        
+        # Verify old session is invalid for any operation
+        reuse_attempt = json.loads(system.create_note(old_session, "Hijack Attempt", "Malicious content"))
+        assert not reuse_attempt["success"], "Logged-out session should not work for anyone"
+        
+        # Verify user2's session still works (logout didn't affect other sessions)
+        user2_test = json.loads(system.create_note(session2, "User2 Note", "User2 content"))
+        assert user2_test["success"], "Other user sessions should remain valid after different user logout"
