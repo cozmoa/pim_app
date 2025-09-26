@@ -483,4 +483,4 @@ class NoteDatabaseSystem:
         stats = self.db.get_user_stats(uid)
         data = {
             "notes": stats["total_notes"],
-            "todos": stats["
+            "todos": stats["todos"]
